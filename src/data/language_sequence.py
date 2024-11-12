@@ -7,15 +7,14 @@
 import numpy as np
 import torch
 
-from src.data.geometries import (
+from .geometries import (
     ALL_ENTITY_CLASSES,
     DoorEntity,
-    get_entity_class_from_string,
     get_entity_class_from_token,
     WallEntity,
     WindowEntity,
 )
-from src.networks.decoder import HELPER_TOKEN
+from ..networks.decoder import HELPER_TOKEN
 
 
 def is_id_param(param):

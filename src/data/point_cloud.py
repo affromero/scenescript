@@ -11,13 +11,14 @@ import torch
 
 
 class PointCloud:
-    def __init__(self, points):
+    def __init__(self, points, colors=None):
         """A class that wraps some point cloud functionality.
 
         Args:
             points: [N, 3] torch.FloatTensor of XYZ coordinates of the point cloud.
         """
         self.points = points
+        self.colors = colors
 
     @staticmethod
     def load_from_file(

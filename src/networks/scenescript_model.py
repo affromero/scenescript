@@ -11,11 +11,11 @@ import torch
 import torchsparse
 from omegaconf import OmegaConf
 
-from src.data.geometries import ALL_ENTITY_CLASSES, get_entity_class_from_token
-from src.data.language_sequence import is_id_param, LanguageSequence
-from src.data.point_cloud import PointCloud
-from src.networks.decoder import HELPER_TOKEN, SceneScriptDecoder
-from src.networks.encoder import PointCloudEncoder
+from ..data.geometries import ALL_ENTITY_CLASSES, get_entity_class_from_token
+from ..data.language_sequence import is_id_param, LanguageSequence
+from ..data.point_cloud import PointCloud
+from .decoder import HELPER_TOKEN, SceneScriptDecoder
+from .encoder import PointCloudEncoder
 from torch.nn import functional as F, modules as nn
 from torchsparse.utils.collate import sparse_collate
 
