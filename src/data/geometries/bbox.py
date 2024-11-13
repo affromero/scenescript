@@ -179,3 +179,15 @@ class BboxEntity(BaseEntity):
             a [1] np.ndarray.
         """
         return np.random.rand(1)  # [1]
+
+    def to_seq_value(self):
+        return [
+            self.TOKEN,
+            self.params["position_x"],
+            self.params["position_y"],
+            self.params["position_z"],
+            self.params["angle_z"],
+            self.params["scale_x"],
+            self.params["scale_y"],
+            self.params["scale_z"],
+        ]

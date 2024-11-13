@@ -386,3 +386,26 @@ class LanguageSequence:
         lang_seq.assign_doors_windows_to_walls()
 
         return lang_seq
+
+    def to_seq_value(self, max_num_tokens):
+        """Convert language sequence to a sequence value.
+
+        Args:
+            max_num_tokens: int.
+
+        Returns:
+            [max_num_tokens] torch.LongTensor.
+        """
+        seq_value = torch.zeros(max_num_tokens, dtype=torch.long)
+        seq_value[0] = HELPER_TOKEN.START
+        idx = 1
+        for entity in self.entities:
+            entity_seq_value = torch.Tensor(entity.to_seq_value()).long()
+            seq_value[idx] = HELPER_TOKEN.PART
+            idx += 1
+            seq_value[idx : idx + entity_seq_value.shape[0]] = entity_seq_value + HELPER_TOKEN.NUM
+            idx += entity_seq_value.shape[0]
+            seq_value[idx] = HELPER_TOKEN.PART
+            idx += 1
+        seq_value[idx] = HELPER_TOKEN.STOP
+        return seq_value

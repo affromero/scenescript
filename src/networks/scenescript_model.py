@@ -200,6 +200,25 @@ class SceneScriptWrapper(object):
 
         return pc_sparse_tensor, pc_min
 
+    def preprocess_language_grountruth(self, language_sequence, pc_min):
+        """Preprocess the language sequence to be fed into the decoder.
+
+        Args:
+            language_sequence: LanguageSequence instance.
+            pc_min: [3] torch.FloatTensor.
+
+        Returns:
+            gt_tokens: [max_tokens] torch.LongTensor.
+        """
+        language_sequence.translate(-pc_min)
+        language_sequence.normalize_and_discretize(
+            self.cfg.data.num_bins, self.cfg.data.normalization_values
+        )
+        # TODO: add tokenization
+        gt_tokens = language_sequence.to_seq_value(self.max_num_tokens)
+
+        return gt_tokens
+
     def postprocess_language(self, seq_value, pc_min):
         """Postprocess the language sequence back into the original frame of reference.
 
@@ -286,5 +305,75 @@ class SceneScriptWrapper(object):
 
         seq_value = seq_value[0]  # un-batch-ify
         language_sequence = self.postprocess_language(seq_value, pc_min)
+
+        return language_sequence
+
+    def run_train_step(
+        self,
+        raw_point_cloud,
+        ground_truth_tokens,
+        optimizer,
+        verbose=False,
+    ):
+        """Run the full inference loop.
+
+        Args:
+            raw_point_cloud: [N, 3] torch.FloatTensor.
+            nucleus_sampling_thresh: float. In [0, 1]. 0 means argmax, 1 means random sampling.
+            verbose: bool.
+
+        Returns:
+            a LanguageSequence instance.
+        """
+        self.model.train()
+        optimizer.zero_grad()  # Clear gradients
+        start_time = time.time()
+
+        # Encode the visual inputs
+        pc_sparse_tensor, pc_min = self.preprocess_point_cloud(raw_point_cloud)
+        encoded_visual_input = self.model["encoder"](pc_sparse_tensor)
+        context = encoded_visual_input["context"]
+        context_mask = encoded_visual_input["context_mask"]
+
+        if verbose:
+            print(f"Time taken for input encoding: {time.time() - start_time:.3f}s")
+            start_time = time.time()  # reset timer
+
+        B = context.shape[0]
+        device = self.device
+
+        seq_value = (
+            torch.ones((B, ground_truth_tokens.size(1)), dtype=torch.long, device=device) * HELPER_TOKEN.START
+        )
+        seq_type = (
+            torch.ones((B, ground_truth_tokens.size(1)), dtype=torch.long, device=device) * self.type_token.START
+        )
+        loss = 0
+        
+        logits = self.model["decoder"](
+            context=context,
+            context_mask=context_mask,
+            seq_value=seq_value,
+            seq_type=seq_type,
+        )# [B, T, num_bins + HELPER_TOKEN.NUM]
+        logits = logits[:, 1:]
+        labels = ground_truth_tokens[:, 1:] # [B, T]
+        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), labels.view(-1))
+
+        # Backpropagate the loss
+        loss.backward()
+
+        # Update the model weights
+        optimizer.step()
+        optimizer.zero_grad()
+
+        if verbose:
+            print(
+                f"Time taken for autoregressive sampling: {time.time() - start_time:.3f}s"
+            )
+
+        language_sequence = []
+        for _seq_value in seq_value:
+            language_sequence.append(self.postprocess_language(_seq_value, pc_min))
 
         return language_sequence

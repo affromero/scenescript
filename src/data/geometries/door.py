@@ -172,3 +172,15 @@ class DoorEntity(BaseEntity):
             a [1] np.ndarray.
         """
         return np.random.rand(1)  # [1]
+
+    def to_seq_value(self):
+        return [
+            self.TOKEN,
+            self.params["wall0_id"],
+            self.params["wall1_id"],
+            self.params["position_x"],
+            self.params["position_y"],
+            self.params["position_z"],
+            self.params["width"],
+            self.params["height"],
+        ]

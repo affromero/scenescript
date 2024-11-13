@@ -84,12 +84,12 @@ class WallEntity(BaseEntity):
         new_wall_start = rot_mat @ wall_start
         new_wall_end = rot_mat @ wall_end
 
-        self.params["a_x"] = new_wall_start[0]
-        self.params["a_y"] = new_wall_start[1]
-        self.params["a_z"] = new_wall_start[2]
-        self.params["b_x"] = new_wall_end[0]
-        self.params["b_y"] = new_wall_end[1]
-        self.params["b_z"] = new_wall_end[2]
+        self.params["a_x"] = round(new_wall_start[0].item(), 3)
+        self.params["a_y"] = round(new_wall_start[1].item(), 3)
+        self.params["a_z"] = round(new_wall_start[2].item(), 3)
+        self.params["b_x"] = round(new_wall_end[0].item(), 3)
+        self.params["b_y"] = round(new_wall_end[1].item(), 3)
+        self.params["b_z"] = round(new_wall_end[2].item(), 3)
 
     def translate(self, translation):
         """Translate wall entity.
@@ -107,12 +107,12 @@ class WallEntity(BaseEntity):
         new_wall_start = wall_start + translation
         new_wall_end = wall_end + translation
 
-        self.params["a_x"] = new_wall_start[0]
-        self.params["a_y"] = new_wall_start[1]
-        self.params["a_z"] = new_wall_start[2]
-        self.params["b_x"] = new_wall_end[0]
-        self.params["b_y"] = new_wall_end[1]
-        self.params["b_z"] = new_wall_end[2]
+        self.params["a_x"] = round(new_wall_start[0].item(), 3)
+        self.params["a_y"] = round(new_wall_start[1].item(), 3)
+        self.params["a_z"] = round(new_wall_start[2].item(), 3)
+        self.params["b_x"] = round(new_wall_end[0].item(), 3)
+        self.params["b_y"] = round(new_wall_end[1].item(), 3)
+        self.params["b_z"] = round(new_wall_end[2].item(), 3)
 
     def lex_sort_key(self):
         """Compute sorting key for lexicographic sorting.
@@ -140,3 +140,21 @@ class WallEntity(BaseEntity):
         self.params["b_x"], self.params["b_y"], self.params["b_z"] = corner_2_ordered
 
         return np.concatenate([corner_2_ordered, corner_1_ordered])
+
+    def to_seq_value(self):
+        """Convert wall entity to sequence value.
+
+        Returns:
+            List of values.
+        """
+        return [
+            self.TOKEN,
+            self.params["a_x"],
+            self.params["a_y"],
+            self.params["a_z"],
+            self.params["b_x"],
+            self.params["b_y"],
+            self.params["b_z"],
+            self.params["height"],
+            self.params["thickness"],
+        ]

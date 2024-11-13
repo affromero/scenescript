@@ -63,3 +63,7 @@ class BaseEntity(ABC):
             return self.lex_sort_key()
         elif sort_type == "random":
             return self.random_sort_key()
+
+    @abstractmethod
+    def to_seq_value(self):
+        pass
