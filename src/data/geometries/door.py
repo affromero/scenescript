@@ -4,11 +4,14 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import Any
+
 import numpy as np
 import torch
 from scipy.spatial.transform import Rotation
 
 from .base_entity import BaseEntity
+from .wall import WallEntity
 
 
 class DoorEntity(BaseEntity):
@@ -27,7 +30,7 @@ class DoorEntity(BaseEntity):
 
     TOKEN = 2
 
-    def __init__(self, parameters, parent_wall_entity=None):
+    def __init__(self, parameters: dict[str, torch.Tensor], parent_wall_entity: WallEntity | None = None) -> None:
         """
         Args:
             parameters: Dict with keys specified in DoorEntity.PARAMS_DEFINITION.
@@ -41,7 +44,7 @@ class DoorEntity(BaseEntity):
 
         self.assign_parent_wall_entity(parent_wall_entity)
 
-    def assign_parent_wall_entity(self, parent_wall_entity=None):
+    def assign_parent_wall_entity(self, parent_wall_entity: WallEntity | None = None) -> None:
         """
         Args:
             parent_wall_entity: WallEntity instance.
@@ -52,14 +55,15 @@ class DoorEntity(BaseEntity):
             self.params["wall0_id"] = parent_wall_entity.params["id"]
             self.params["wall1_id"] = parent_wall_entity.params["id"]
 
-    def extent(self):
+    def extent(self) -> dict[str, float]:
         """Compute extent of door entity.
 
         Returns:
             Dict with the following keys: {min/max/size}_{x/y/z}.
                 Values are floats.
         """
-
+        if self.parent_wall_entity is None:
+            raise ValueError("Parent wall entity is not assigned.")
         wall_start = np.array(
             [
                 self.parent_wall_entity.params["a_x"],
@@ -108,7 +112,7 @@ class DoorEntity(BaseEntity):
             "size_z": max(max_z - min_z, 0),
         }
 
-    def rotate(self, rotation_angle):
+    def rotate(self, rotation_angle: float) -> None:
         """Rotate door entity.
 
         Args:
@@ -131,11 +135,11 @@ class DoorEntity(BaseEntity):
         self.params["position_y"] = new_door_center[1]
         self.params["position_z"] = new_door_center[2]
 
-    def translate(self, translation):
+    def translate(self, translation: torch.Tensor) -> None:
         """Translate door entity.
 
         Args:
-            translation: [3] np.ndarray of XYZ translation.
+            translation: [3] torch.Tensor of XYZ translation.
         """
         door_center = torch.as_tensor(
             [
@@ -150,7 +154,7 @@ class DoorEntity(BaseEntity):
         self.params["position_y"] = float(new_door_center[1])
         self.params["position_z"] = float(new_door_center[2])
 
-    def lex_sort_key(self):
+    def lex_sort_key(self) -> np.ndarray:
         """Compute sorting key for lexicographic sorting.
 
         Returns:
@@ -165,7 +169,7 @@ class DoorEntity(BaseEntity):
         )  # [3]
         return door_center
 
-    def random_sort_key(self):
+    def random_sort_key(self) -> np.ndarray:
         """Compute sorting key for random sorting.
 
         Returns:
@@ -173,7 +177,7 @@ class DoorEntity(BaseEntity):
         """
         return np.random.rand(1)  # [1]
 
-    def to_seq_value(self):
+    def to_seq_value(self) -> list[Any]:
         return [
             self.TOKEN,
             self.params["wall0_id"],

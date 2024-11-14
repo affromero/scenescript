@@ -9,65 +9,62 @@ import torch
 import torchsparse
 import torchsparse.nn as spnn
 from einops import repeat
-
 from torch import nn
 from torch.nn import functional as F
 
 
 def make_conv3d_sparse(
-    channels_in,
-    channels_out,
-    kernel_size=3,
-    num_groups=8,
-    activation=spnn.ReLU,
-):
+    channels_in: int,
+    channels_out: int,
+    kernel_size:int=3,
+    num_groups:int=8,
+    activation:nn.Module=spnn.ReLU,
+) -> nn.Sequential:
     num_groups = min(num_groups, channels_out)
-    block = nn.Sequential(
+    return nn.Sequential(
         spnn.Conv3d(channels_in, channels_out, kernel_size=kernel_size, stride=1),
         spnn.GroupNorm(num_groups, channels_out),
         activation(inplace=True),
     )
-    return block
 
 
 def make_conv3d_downscale_sparse(
-    channels_in,
-    channels_out,
-    num_groups=8,
-    activation=spnn.ReLU,
-):
+    channels_in:int,
+    channels_out:int,
+    num_groups:int=8,
+    activation:nn.Module=spnn.ReLU,
+) -> nn.Sequential:
     num_groups = min(num_groups, channels_out)
-    block = nn.Sequential(
+    return nn.Sequential(
         spnn.Conv3d(channels_in, channels_out, kernel_size=2, stride=2),
         spnn.GroupNorm(num_groups, channels_out),
         activation(inplace=True),
     )
-    return block
 
 
 class ResBlockSparse(nn.Module):
     def __init__(
         self,
-        channels,
-        num_groups=8,
-        activation=spnn.ReLU,
-    ):
+        channels:int,
+        num_groups:int=8,
+        activation:nn.Module=spnn.ReLU,
+    ) -> None:
         super().__init__()
 
         self.block0 = make_conv3d_sparse(
-            channels, channels, num_groups=num_groups, activation=activation
+            channels, channels, num_groups=num_groups, activation=activation,
         )
         self.block1 = make_conv3d_sparse(
-            channels, channels, num_groups=num_groups, activation=activation
+            channels, channels, num_groups=num_groups, activation=activation,
         )
 
-    def forward(self, x):
+    def forward(self, x:torchsparse.SparseTensor) -> torchsparse.SparseTensor:
         out = self.block0(x)
         out = self.block1(out)
         return x + out
 
 
-def index_batched_sparse_tensor(sparse_tensor, index):
+def index_batched_sparse_tensor(sparse_tensor:torchsparse.SparseTensor, index:int) -> torchsparse.SparseTensor:
     """Index into a batched torchsparse.SparseTensor.
 
     Args:
@@ -77,6 +74,7 @@ def index_batched_sparse_tensor(sparse_tensor, index):
 
     Returns:
         torchsparse.SparseTensor with no batch dimension.
+
     """
     batch_mask = sparse_tensor.C[:, 0] == index
     coords = sparse_tensor.C[batch_mask, 1:]  # Get rid of batch dim
@@ -88,7 +86,7 @@ def index_batched_sparse_tensor(sparse_tensor, index):
     )
 
 
-def sparse_uncollate(sparse_tensor):
+def sparse_uncollate(sparse_tensor:torchsparse.SparseTensor) -> list[torchsparse.SparseTensor]:
     """Un-Collate a batched torchsparse.SparseTensor.
 
     Args:
@@ -97,6 +95,7 @@ def sparse_uncollate(sparse_tensor):
 
     Returns:
         List[torchsparse.SparseTensor].
+
     """
     batch_size = sparse_tensor.C[:, 0].max() + 1
 
@@ -106,7 +105,7 @@ def sparse_uncollate(sparse_tensor):
     return sparse_tensor_list
 
 
-def vox_to_sequence(sparse_tensor):
+def vox_to_sequence(sparse_tensor:torchsparse.SparseTensor) -> dict[str, torch.Tensor]:
     """Compute sequence from sparse point cloud.
 
     Args:
@@ -117,6 +116,7 @@ def vox_to_sequence(sparse_tensor):
             seq: [B, maxlen, C] torch.FloatTensor.
             coords: [B, maxlen, 3] torch.IntTensor. To be used with embeddings for Transformers.
             mask: [B, maxlen] torch.BoolTensor. To be used with Transformers.
+
     """
     sparse_tensor_list = sparse_uncollate(sparse_tensor)
     batch_size = len(sparse_tensor_list)
@@ -167,7 +167,7 @@ def vox_to_sequence(sparse_tensor):
     }
 
 
-def fourier_encode_vector(vec, num_bands=10, sample_rate=60):
+def fourier_encode_vector(vec:torch.Tensor, num_bands:int=10, sample_rate:int=60) -> torch.Tensor:
     """Fourier encode a vector.
 
     Args:
@@ -177,6 +177,7 @@ def fourier_encode_vector(vec, num_bands=10, sample_rate=60):
 
     Returns:
         [B, N, (2 * num_bands + 1) * D] torch.FloatTensor.
+
     """
     b, n, d = vec.shape
     samples = torch.linspace(1, sample_rate / 2, num_bands).to(vec.device) * torch.pi
@@ -189,7 +190,8 @@ def fourier_encode_vector(vec, num_bands=10, sample_rate=60):
 
 
 class ResNet3DSparse(nn.Module):
-    def __init__(self, dim_in, dim_out, layers):
+    def __init__(self, dim_in:int, dim_out:int, layers:list[int]) -> None:
+        """3D ResNet for sparse tensors."""
         super().__init__()
 
         self.stem = nn.Sequential(
@@ -205,7 +207,7 @@ class ResNet3DSparse(nn.Module):
                     make_conv3d_downscale_sparse(layers[i], layers[i + 1]),
                     ResBlockSparse(layers[i + 1]),
                     ResBlockSparse(layers[i + 1]),
-                )
+                ),
             )
         self.blocks = nn.Sequential(*blocks)
 
@@ -216,7 +218,7 @@ class ResNet3DSparse(nn.Module):
             nn.Linear(2 * layers[-1], dim_out),
         )
 
-    def forward(self, x):
+    def forward(self, x:torchsparse.SparseTensor) -> torchsparse.SparseTensor:
         out = self.stem(x)
         out = self.blocks(out)
         out.F = self.bottleneck(out.F)  # bottleneck applied to features only
@@ -226,11 +228,11 @@ class ResNet3DSparse(nn.Module):
 class PointCloudEncoder(nn.Module):
     def __init__(
         self,
-        input_channels,
-        d_model,
-        conv_layers,
-        num_bins,
-    ):
+        input_channels:int,
+        d_model:int,
+        conv_layers:list[int],
+        num_bins:int,
+    ) -> None:
         """Point Cloud Encoder.
 
         Args:
@@ -238,8 +240,8 @@ class PointCloudEncoder(nn.Module):
             d_model: int.
             conv_layers: List[int].
             num_bins: int.
-        """
 
+        """
         super().__init__()
 
         self.sparse_resnet = ResNet3DSparse(
@@ -255,7 +257,7 @@ class PointCloudEncoder(nn.Module):
         # the following is a legacy parameter
         self.extra_embedding = nn.Parameter(torch.empty(d_model).normal_(std=0.02))
 
-    def forward(self, point_cloud: torchsparse.SparseTensor):
+    def forward(self, point_cloud: torchsparse.SparseTensor) -> dict[str, torch.Tensor]:
         """Forward function.
 
         Args:
@@ -264,6 +266,7 @@ class PointCloudEncoder(nn.Module):
         Returns: a Dict with the following keys:
             context: [B, maxlen, d_model] torch.FloatTensor.
             context_mask: [B, maxlen] torch.BoolTensor. True means ignore.
+
         """
         outputs = self.sparse_resnet(point_cloud)
         outputs = vox_to_sequence(outputs)

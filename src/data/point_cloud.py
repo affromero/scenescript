@@ -4,49 +4,59 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
-
 import torch
 
 
 class PointCloud:
-    def __init__(self, points, colors=None):
+    def __init__(self,
+        points: torch.FloatTensor,
+        colors: torch.FloatTensor | None= None,
+    ) -> None:
         """A class that wraps some point cloud functionality.
 
         Args:
             points: [N, 3] torch.FloatTensor of XYZ coordinates of the point cloud.
+
         """
         self.points = points
         self.colors = colors
 
     @staticmethod
     def load_from_file(
-        point_cloud_filename,
-        distance_std_threshold=0.01,
-        inverse_distance_std_threshold=0.001,
-    ):
+        point_cloud_filename: str,
+        distance_std_threshold:float=0.01,
+        inverse_distance_std_threshold:float=0.001,
+    ) -> "PointCloud":
         """A class that wraps some point cloud functionality.
 
         Args:
             point_cloud_filename: str. Path to point cloud file output by Aria MPS.
             distance_std_threshold: float. Threshold on the standard deviation of the distance.
             inverse_distance_std_threshold: float. Threshold on the standard deviation of the inverse depth.
+
         """
         try:
-            import projectaria_tools.core.mps as mps
-            from projectaria_tools.core.mps.utils import filter_points_from_confidence
+            from projectaria_tools.core import (
+                mps,  # type: ignore[import,unused-ignore]
+            )
+            from projectaria_tools.core.mps.utils import (
+                filter_points_from_confidence,  # type: ignore[import,unused-ignore]
+            )
 
             all_points = mps.read_global_point_cloud(point_cloud_filename)
 
             # filter the point cloud using thresholds on the inverse depth and distance standard deviation
             filtered_points = filter_points_from_confidence(
-                all_points, inverse_distance_std_threshold, distance_std_threshold
+                all_points, inverse_distance_std_threshold, distance_std_threshold,
             )
 
             # turn into np.array
             points = np.array(
-                [point.position_world.astype(np.float32) for point in filtered_points]
+                [point.position_world.astype(np.float32) for point in filtered_points],
             )
 
         except ImportError:
@@ -69,14 +79,14 @@ class PointCloud:
 
         return PointCloud(points=torch.as_tensor(points).float())
 
-    def extent(self):
+    def extent(self) -> dict[str, float]:
         """Compute extent of point cloud.
 
         Returns:
             Dict with the following keys: {min/max/size}_{x/y/z}.
                 Values are floats.
-        """
 
+        """
         min_x = 1e6
         min_y = 1e6
         min_z = 1e6
@@ -106,18 +116,19 @@ class PointCloud:
             "size_z": max(max_z - min_z, 0),
         }
 
-    def translate(self, translation_vector):
+    def translate(self, translation_vector: torch.FloatTensor) -> None:
         """Translate point cloud.
 
         Args:
             translation_vector: [3] torch.FloatTensor of XYZ translation vector.
+
         """
         points_xyz = self.points[:, :3]
         points_rest = self.points[:, 3:]
         translated_points = points_xyz + translation_vector.to(points_xyz.device)
         self.points = torch.cat([translated_points, points_rest], dim=1)
 
-    def normalize_and_discretize(self, num_bins, normalization_values):
+    def normalize_and_discretize(self, num_bins: int, normalization_values: dict[str, list[float | str]]) -> None:
         """Normalize and Discretize the point cloud.
 
         Args:
@@ -128,15 +139,17 @@ class PointCloud:
                 Values can be either List[float] or List[str].
                     List[float] are used for min/max value (e.g. min/max width/height).
                     List[str] is used for categories (e.g. ["table", "chair"]) for "bbox_classes".
-                    Examples:
+
+        Examples:
                         "world": [0.0, 32.0],
                         "width": [0.0, 5.0],
                         "bbox_classes": ["table", "chair"],
                         ...
+
         """
         original_points = self.points.clone()
         normalization_extent = (
-            normalization_values["world"][1] - normalization_values["world"][0]
+            cast(float, normalization_values["world"][1]) - cast(float, normalization_values["world"][0])
         )
 
         # Translate to positive quadrant
@@ -153,7 +166,7 @@ class PointCloud:
 
         # Get unique voxel coordinates
         unique_voxel_coords, inverse, unique_voxel_counts = np.unique(
-            voxel_coords.cpu().numpy(), axis=0, return_inverse=True, return_counts=True
+            voxel_coords.cpu().numpy(), axis=0, return_inverse=True, return_counts=True,
         )
         unique_voxel_coords = torch.as_tensor(unique_voxel_coords)
         inverse = torch.as_tensor(inverse).to(self.points.device)

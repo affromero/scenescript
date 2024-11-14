@@ -5,43 +5,45 @@
 # LICENSE file in the root directory of this source tree.
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 import numpy as np
+import torch
 
 
 class BaseEntity(ABC):
     @property
     @abstractmethod
-    def COMMAND_STRING(self):
+    def COMMAND_STRING(self) -> str:
         pass
 
     @property
     @abstractmethod
-    def PARAMS_DEFINITION(self):
+    def PARAMS_DEFINITION(self) -> dict[str, Any]:
         pass
 
     @property
     @abstractmethod
-    def TOKEN(self):
+    def TOKEN(self) -> int:
         pass
 
     @abstractmethod
-    def extent(self):
+    def extent(self) -> dict[str, float]:
         pass
 
     @abstractmethod
-    def rotate(self, rotation_angle):
+    def rotate(self, rotation_angle: float) -> None:
         pass
 
     @abstractmethod
-    def translate(self, translation):
+    def translate(self, translation: torch.Tensor) -> None:
         pass
 
     @abstractmethod
-    def lex_sort_key(self):
+    def lex_sort_key(self) -> np.ndarray:
         pass
 
-    def random_sort_key(self):
+    def random_sort_key(self) -> np.ndarray:
         """Compute sorting key for random sorting.
 
         Returns:
@@ -49,7 +51,7 @@ class BaseEntity(ABC):
         """
         return np.random.rand(1)  # [1]
 
-    def sort_key(self, sort_type):
+    def sort_key(self, sort_type: str) -> np.ndarray:
         """Compute sorting key.
 
         Args:
@@ -65,5 +67,5 @@ class BaseEntity(ABC):
             return self.random_sort_key()
 
     @abstractmethod
-    def to_seq_value(self):
+    def to_seq_value(self) -> list[Any]:
         pass

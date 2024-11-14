@@ -4,24 +4,28 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import contextlib
+from typing import cast
+
 import numpy as np
 import torch
 
+from ..networks.decoder import HELPER_TOKEN
 from .geometries import (
     ALL_ENTITY_CLASSES,
-    DoorEntity,
+    ALL_ENTITY_CLASSES_TYPE,
     get_entity_class_from_token,
-    WallEntity,
-    WindowEntity,
 )
-from ..networks.decoder import HELPER_TOKEN
+from .geometries.door import DoorEntity
+from .geometries.wall import WallEntity
+from .geometries.window import WindowEntity
 
 
-def is_id_param(param):
+def is_id_param(param: str) -> bool:
     return param == "id" or "_id" in param
 
 
-def point_to_line_seg_dist(point, line_seg):
+def point_to_line_seg_dist(point: np.ndarray, line_seg: tuple[np.ndarray, np.ndarray]) -> float:
     """Compute point to line segment distance.
 
     Args:
@@ -32,6 +36,7 @@ def point_to_line_seg_dist(point, line_seg):
 
     Returns:
         scalar.
+
     """
     # unit vector
     unit_line_seg = line_seg[1] - line_seg[0]  # [2]
@@ -39,7 +44,7 @@ def point_to_line_seg_dist(point, line_seg):
 
     # compute the perpendicular distance to the theoretical infinite line_seg
     segment_dist = np.linalg.norm(
-        np.cross(line_seg[1] - line_seg[0], line_seg[0] - point)
+        np.cross(line_seg[1] - line_seg[0], line_seg[0] - point),
     ) / np.linalg.norm(unit_line_seg)  # scalar
 
     # Project point to line
@@ -49,7 +54,7 @@ def point_to_line_seg_dist(point, line_seg):
 
     # Distance of point to line segment endpoints
     endpoint_dist = min(
-        np.linalg.norm(line_seg[0] - point), np.linalg.norm(line_seg[1] - point)
+        np.linalg.norm(line_seg[0] - point), np.linalg.norm(line_seg[1] - point),
     )
 
     # decide if the intersection point falls on the line_seg segment
@@ -61,29 +66,28 @@ def point_to_line_seg_dist(point, line_seg):
     is_betw_y = lp1_y <= y_seg <= lp2_y or lp2_y <= y_seg <= lp1_y
     if is_betw_x and is_betw_y:
         return segment_dist
-    else:
-        # if not, then return the minimum distance to the segment endpoints
-        return endpoint_dist
+    # if not, then return the minimum distance to the segment endpoints
+    return endpoint_dist
 
 
 class LanguageSequence:
-    def __init__(self, entities):
-        """
-        Args:
-            entities: List[BaseEntity]
+    def __init__(self, entities: ALL_ENTITY_CLASSES_TYPE) -> None:
+        """Args:
+        entities: List[BaseEntity].
+
         """
         self.entities = entities
 
     @staticmethod
-    def load_from_file(filepath):
+    def load_from_file(filepath: str) -> "LanguageSequence":
+        """Args:
+        filepath: str. Path to local file.
+
         """
-        Args:
-            filepath: str. Path to local file.
-        """
-        entities = []
+        entities: ALL_ENTITY_CLASSES_TYPE = []
 
         # Read and load entities
-        with open(filepath, "r") as f:
+        with open(filepath) as f:
             lines = f.readlines()
 
             for line in lines:
@@ -93,7 +97,7 @@ class LanguageSequence:
 
                 # Get the correct entity class
                 for ENTITY_CLASS in ALL_ENTITY_CLASSES:
-                    if ENTITY_CLASS.COMMAND_STRING == command_string:
+                    if command_string == ENTITY_CLASS.COMMAND_STRING:
                         break
 
                 # Get the parameters
@@ -112,23 +116,23 @@ class LanguageSequence:
                         if _ent.params["id"] == parent_wall_id:
                             parent_wall_entity = _ent
                     assert parent_wall_entity is not None
-                    new_entity = ENTITY_CLASS(params, parent_wall_entity)
+                    new_entity = ENTITY_CLASS(params, parent_wall_entity)  # type: ignore[operator]
 
                 else:
-                    new_entity = ENTITY_CLASS(params)
+                    new_entity = ENTITY_CLASS(params)  # type: ignore[operator]
 
                 entities.append(new_entity)
 
         return LanguageSequence(entities)
 
-    def extent(self):
+    def extent(self) -> dict[str, float]:
         """Compute extent of language.
 
         Returns:
             Dict with the following keys: {min/max/size}_{x/y/z}.
                 Values are floats.
-        """
 
+        """
         min_x = 1e6
         min_y = 1e6
         min_z = 1e6
@@ -157,25 +161,27 @@ class LanguageSequence:
             "size_z": max(max_z - min_z, 0),
         }
 
-    def rotate(self, rotation_angle):
+    def rotate(self, rotation_angle: float) -> None:
         """Rotate language entities.
 
         Args:
             rotation_angle: float. Angle to rotate in degrees about the Z-axis.
+
         """
         for entity in self.entities:
             entity.rotate(rotation_angle)
 
-    def translate(self, translation):
+    def translate(self, translation: torch.Tensor) -> None:
         """Translate language entities.
 
         Args:
             translation: [3] torch.FloatTensor of XYZ translation vector.
+
         """
         for entity in self.entities:
             entity.translate(translation)
 
-    def normalize_and_discretize(self, num_bins, normalization_values):
+    def normalize_and_discretize(self, num_bins: int, normalization_values: dict[str, list[float | str]]) -> None:
         """Normalize and discretize language entities.
 
         Args:
@@ -186,65 +192,69 @@ class LanguageSequence:
                 Values can be either List[float] or List[str].
                     List[float] are used for min/max value (e.g. min/max width/height).
                     List[str] is used for categories (e.g. ["table", "chair"]) for "bbox_classes".
-                    Examples:
+
+        Examples:
                         "world": [0.0, 32.0],
                         "width": [0.0, 5.0],
                         "bbox_classes": ["table", "chair"],
                         ...
+
         """
         for entity in self.entities:
             for key in entity.PARAMS_DEFINITION:
                 normalization_strategy = entity.PARAMS_DEFINITION[key]["normalise"]
                 dtype = entity.PARAMS_DEFINITION[key]["dtype"]
-
-                if dtype == float:
-                    min_val, max_val = normalization_values[normalization_strategy]
-                    normalized_value = (entity.params[key] - min_val) / (
+                if issubclass(dtype, float):
+                    _param_key = cast(float, entity.params[key])
+                    min_val, max_val = cast(tuple[float, float], normalization_values[normalization_strategy])
+                    normalized_value = (_param_key - min_val) / (
                         max_val - min_val
                     )  # scalar. range: [0, 1]
 
                     rounded_value = int(normalized_value * num_bins)
                     if rounded_value >= num_bins:
+                        msg = f"{key}={_param_key} overflowed to {rounded_value}..."
                         raise ValueError(
-                            f"{key}={entity.params[key]} overflowed to {rounded_value}..."
+                            msg,
                         )
                     entity.params[key] = rounded_value
 
-                elif dtype == str:
+                elif issubclass(dtype, str):
                     entity.params[key] = normalization_values[
                         normalization_strategy
                     ].index(entity.params[key])
 
-                elif dtype == int:
+                elif issubclass(dtype, int):
                     pass  # The value is already discretized
 
-    def undiscretize_and_unnormalize(self, num_bins, normalization_values):
+    def undiscretize_and_unnormalize(self, num_bins: int, normalization_values: dict[str, list[float | str]]) -> None:
         """Reverse the normalization/discretization process.
 
         Args:
             num_bins: int.
             normalization_values: Dict[str, List[Union[float, str]]]. See description
                 in self.normalize().
+
         """
         for entity in self.entities:
             for key in entity.params:
                 normalization_strategy = entity.PARAMS_DEFINITION[key]["normalise"]
                 dtype = entity.PARAMS_DEFINITION[key]["dtype"]
 
-                if dtype == float:  # value is in [0, 1]
+                if issubclass(dtype, float):  # value is in [0, 1]
                     undiscretized = entity.params[key] / num_bins
-                    min_val, max_val = normalization_values[normalization_strategy]
+                    min_val, max_val = cast(tuple[float, float], normalization_values[normalization_strategy])
                     entity.params[key] = undiscretized * (max_val - min_val) + min_val
 
-                elif dtype == str:
+                elif issubclass(dtype, str):
                     entity.params[key] = normalization_values[normalization_strategy][
                         entity.params[key]
                     ]
 
-                elif dtype == int:
+                elif issubclass(dtype, int):
                     pass  # The value is already un-discretized/un-normalised.
 
-    def sort_entities(self, sort_type):
+    def sort_entities(self, sort_type: str) -> None:
         """Sort language entities.
 
         The instances belonging to each entity type will be sorted.
@@ -252,6 +262,7 @@ class LanguageSequence:
 
         Args:
             sort_type: str. MUST be in ["lex", "random"].
+
         """
         sorted_entities = []
         for ENTITY_CLASS in ALL_ENTITY_CLASSES:
@@ -269,49 +280,49 @@ class LanguageSequence:
 
         self.entities = sorted_entities
 
-    def assign_doors_windows_to_walls(self):
+    def assign_doors_windows_to_walls(self) -> None:
         wall_entities = [x for x in self.entities if isinstance(x, WallEntity)]
 
         for entity in self.entities:
-            if isinstance(entity, DoorEntity) or isinstance(entity, WindowEntity):
+            if isinstance(entity, DoorEntity | WindowEntity):
                 num_walls = len(wall_entities)
                 wall_starts = np.array(
                     [
                         [wall_ent.params["a_x"], wall_ent.params["a_y"]]
                         for wall_ent in wall_entities
-                    ]
+                    ],
                 )  # [N_walls, 2]
                 wall_ends = np.array(
                     [
                         [wall_ent.params["b_x"], wall_ent.params["b_y"]]
                         for wall_ent in wall_entities
-                    ]
+                    ],
                 )  # [N_walls, 2]
                 walls = [(wall_starts[i], wall_ends[i]) for i in range(num_walls)]
                 # List of [(x1,y1), (x2,y2)] wall start/ends.
 
                 pos_xy = np.array(
-                    [entity.params["position_x"], entity.params["position_y"]]
+                    [entity.params["position_x"], entity.params["position_y"]],
                 )
                 parent_idx = np.argmin(
-                    [point_to_line_seg_dist(pos_xy, w) for w in walls]
+                    [point_to_line_seg_dist(pos_xy, w) for w in walls],
                 )
                 entity.assign_parent_wall_entity(wall_entities[parent_idx])
 
-    def generate_language_string(self):
+    def generate_language_string(self) -> str:
         """Write SceneScript Language string."""
         all_lines = []
         for entity in self.entities:
             new_line = ", ".join(
                 [entity.COMMAND_STRING]
-                + [f"{key}={entity.params[key]}" for key in entity.PARAMS_DEFINITION]
+                + [f"{key}={entity.params[key]}" for key in entity.PARAMS_DEFINITION],
             )
             all_lines.append(new_line)
 
         return "\n".join(all_lines)
 
     @staticmethod
-    def from_seq_value(seq_value):
+    def from_seq_value(seq_value: torch.LongTensor) -> "LanguageSequence":
         """Convert a sequence value to a language sequence.
 
         Args:
@@ -319,6 +330,7 @@ class LanguageSequence:
 
         Returns:
             LanguageSequence.
+
         """
         seq = seq_value.to("cpu")
         stop_idxs = torch.where(seq == HELPER_TOKEN.STOP)[0]
@@ -370,16 +382,12 @@ class LanguageSequence:
                         params[param_key] = ids_dict["make_bbox"] - 1  # current bbox_id
                     continue
 
-                try:
+                with contextlib.suppress(Exception):
                     params[param_key] = int(params_subseq[params_subseq_idx].item())
-                except Exception as e:
-                    print(
-                        f"Invalid subsequence! {seq[part_idxs[part_idx] : part_idxs[part_idx + 1]]}",
-                    )
                 params_subseq_idx += 1
 
             # Append to entities
-            entity = ENTITY_CLASS(params)
+            entity = ENTITY_CLASS(params)  # type: ignore[operator]
             entities.append(entity)
 
         lang_seq = LanguageSequence(entities)
@@ -387,7 +395,7 @@ class LanguageSequence:
 
         return lang_seq
 
-    def to_seq_value(self, max_num_tokens):
+    def to_seq_value(self, max_num_tokens: int) -> torch.LongTensor:
         """Convert language sequence to a sequence value.
 
         Args:
@@ -395,6 +403,7 @@ class LanguageSequence:
 
         Returns:
             [max_num_tokens] torch.LongTensor.
+
         """
         seq_value = torch.zeros(max_num_tokens, dtype=torch.long)
         seq_value[0] = HELPER_TOKEN.START

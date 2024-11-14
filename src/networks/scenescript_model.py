@@ -6,38 +6,41 @@
 
 import time
 from enum import IntEnum
+from typing import Any
 
 import torch
 import torchsparse
 from omegaconf import OmegaConf
+from torch.nn import functional as F
+from torch.nn import modules as nn
+from torchsparse.utils.collate import sparse_collate
 
 from ..data.geometries import ALL_ENTITY_CLASSES, get_entity_class_from_token
-from ..data.language_sequence import is_id_param, LanguageSequence
+from ..data.language_sequence import LanguageSequence, is_id_param
 from ..data.point_cloud import PointCloud
 from .decoder import HELPER_TOKEN, SceneScriptDecoder
 from .encoder import PointCloudEncoder
-from torch.nn import functional as F, modules as nn
-from torchsparse.utils.collate import sparse_collate
 
 
-def create_TYPE_TOKEN():
+def create_TYPE_TOKEN() -> IntEnum:
     values = ["PAD", "START", "STOP", "PART", "NOT_USED", "NOT_USED_1", "COMMAND"]
     for ENTITY_CLASS in ALL_ENTITY_CLASSES:
         for param_key in ENTITY_CLASS.PARAMS_DEFINITION:
-            values.append("_".join([ENTITY_CLASS.COMMAND_STRING, param_key]).upper())
+            value: str = f"{ENTITY_CLASS.COMMAND_STRING}_{param_key}"
+            values.append(value.upper())
     values.append("NUM")
     return IntEnum("TYPE_TOKEN", values, start=0)
 
 
-def list_rindex(list, value):
-    list.reverse()
-    i = list.index(value)
-    list.reverse()
-    return len(list) - i - 1
+def list_rindex(_list: list[Any], value: Any) -> int:
+    _list.reverse()
+    i = _list.index(value)
+    _list.reverse()
+    return len(_list) - i - 1
 
 
 class SceneScriptWrapper(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, cfg: OmegaConf) -> None:
         super().__init__()
         self.cfg = cfg
         self.max_num_tokens = cfg.model.decoder.max_num_tokens
@@ -56,12 +59,12 @@ class SceneScriptWrapper(nn.Module):
             dim_feedforward=cfg.model.decoder.dim_feedforward,
             num_bins=cfg.model.decoder.num_bins,
             max_num_tokens=cfg.model.decoder.max_num_tokens,
-            max_num_type_tokens=self.type_token.NUM,
+            max_num_type_tokens=self.type_token.NUM,  # type: ignore[attr-defined]
             num_decoder_layers=cfg.model.decoder.num_decoder_layers,
         )
 
     @staticmethod
-    def load_from_checkpoint(ckpt_path, is_train=False):
+    def load_from_checkpoint(ckpt_path: str, is_train: bool=False) -> "SceneScriptWrapper":
         ckpt_dict = torch.load(ckpt_path)
         cfg = OmegaConf.create(ckpt_dict["cfg"])
 
@@ -77,35 +80,35 @@ class SceneScriptWrapper(nn.Module):
         return model_wrapper
 
     @property
-    def device(self):
-        return list(self.encoder.parameters())[0].device
+    def device(self) -> torch.device:
+        return next(iter(self.encoder.parameters())).device
 
-    def cpu(self):
+    def cpu(self) -> "SceneScriptWrapper":
         self.encoder.cpu()
         self.decoder.cpu()
         return self
 
-    def to(self, device):
+    def to(self, device: str | torch.device) -> "SceneScriptWrapper":
         self.encoder.to(device)
         self.decoder.to(device)
         return self
-    
-    def train(self):
+
+    def train(self) -> "SceneScriptWrapper":
         self.encoder.train()
         self.decoder.train()
         return self
-    
-    def eval(self):
+
+    def eval(self) -> "SceneScriptWrapper":
         self.encoder.eval()
         self.decoder.eval()
         return self
 
-    def cuda(self):
+    def cuda(self) -> "SceneScriptWrapper":
         self.encoder.cuda()
         self.decoder.cuda()
         return self
 
-    def top_p(self, logits, thres):
+    def top_p(self, logits: torch.Tensor, thres: float) -> torch.Tensor:
         """Filter out logits for nucleus sampling.
 
         Args:
@@ -114,6 +117,7 @@ class SceneScriptWrapper(nn.Module):
 
         Returns:
             filtered_logits: [B, num_bins + HELPER_TOKEN.NUM] torch.Tensor.
+
         """
         # Sort the logits
         sorted_logits, sorted_indices = torch.sort(logits, descending=True)
@@ -131,7 +135,7 @@ class SceneScriptWrapper(nn.Module):
         # Scatter will put logits back in their places
         return sorted_logits.scatter(1, sorted_indices, sorted_logits)
 
-    def type_decoding(self, seq_value, seq_type):
+    def type_decoding(self, seq_value: torch.Tensor, seq_type: torch.Tensor) -> torch.Tensor:
         """Decode the next type token.
 
         Args:
@@ -140,6 +144,7 @@ class SceneScriptWrapper(nn.Module):
 
         Returns:
             [B, t] torch.LongTensor.
+
         """
         new_type = torch.zeros_like(seq_type[:, 0])  # [B]
         for b in range(seq_value.shape[0]):
@@ -148,35 +153,35 @@ class SceneScriptWrapper(nn.Module):
 
             try:
                 # There's already a stop token
-                if torch.any(seq_type_b == self.type_token.STOP):
-                    new_type[b] = self.type_token.PAD
+                if torch.any(seq_type_b == self.type_token.STOP):  # type: ignore[attr-defined]
+                    new_type[b] = self.type_token.PAD  # type: ignore[attr-defined]
 
                 # A PART token was predicted in sequence
                 elif seq_value_b[-1] == HELPER_TOKEN.PART:
-                    new_type[b] = self.type_token.PART
+                    new_type[b] = self.type_token.PART  # type: ignore[attr-defined]
 
                 # A STOP token was predicted in sequence
                 elif seq_value_b[-1] == HELPER_TOKEN.STOP:
-                    new_type[b] = self.type_token.STOP
+                    new_type[b] = self.type_token.STOP  # type: ignore[attr-defined]
 
                 # Previously, a COMMAND token was predicted
-                elif seq_type_b[-1] == self.type_token.PART:
-                    new_type[b] = self.type_token.COMMAND
+                elif seq_type_b[-1] == self.type_token.PART:  # type: ignore[attr-defined]
+                    new_type[b] = self.type_token.COMMAND  # type: ignore[attr-defined]
 
                 # We are somewhere in the middle of an argument sequence
                 else:
                     latest_command_token_idx = list_rindex(
-                        seq_type_b.tolist(), self.type_token.COMMAND
+                        seq_type_b.tolist(), self.type_token.COMMAND,  # type: ignore[attr-defined]
                     )
                     command_value = int(
-                        seq_value_b[latest_command_token_idx] - HELPER_TOKEN.NUM
+                        seq_value_b[latest_command_token_idx] - HELPER_TOKEN.NUM,
                     )
                     ENTITY_CLASS = get_entity_class_from_token(command_value)
 
                     type_token_ordering = (
-                        [self.type_token.COMMAND]
+                        [self.type_token.COMMAND]  # type: ignore[attr-defined]
                         + [
-                            self.type_token[
+                            self.type_token[  # type: ignore[index]
                                 f"{ENTITY_CLASS.COMMAND_STRING}_{param_key}".upper()
                             ]
                             for param_key in ENTITY_CLASS.PARAMS_DEFINITION
@@ -188,11 +193,11 @@ class SceneScriptWrapper(nn.Module):
                     new_type[b] = type_token_ordering[token_order_idx + 1]
 
             except:  # for any errors, just pad
-                new_type[b] = self.type_token.PAD
+                new_type[b] = self.type_token.PAD  # type: ignore[attr-defined]
 
         return torch.cat([seq_type, new_type.unsqueeze(-1)], dim=-1)
 
-    def preprocess_point_cloud(self, point_cloud):
+    def preprocess_point_cloud(self, _point_cloud: torch.Tensor) -> tuple[torchsparse.SparseTensor, torch.Tensor]:
         """Preprocess the point cloud to be fed into the encoder.
 
         Args:
@@ -200,18 +205,19 @@ class SceneScriptWrapper(nn.Module):
 
         Returns:
             sparse_tensor: torchsparse.SparseTensor.
+
         """
-        point_cloud = PointCloud(point_cloud)
+        point_cloud = PointCloud(_point_cloud)
 
         # Push to positive quadrant
         extent = point_cloud.extent()
         pc_min = [extent["min_x"], extent["min_y"], extent["min_z"]]
-        pc_min = torch.as_tensor(pc_min)
-        point_cloud.translate(-pc_min)
+        pc_min_torch = torch.as_tensor(pc_min)
+        point_cloud.translate(-pc_min_torch)
 
         # Normalize / Discretize it
         point_cloud.normalize_and_discretize(
-            self.cfg.data.num_bins, self.cfg.data.normalization_values
+            self.cfg.data.num_bins, self.cfg.data.normalization_values,
         )
 
         # Convert to torchsparse.SparseTensor
@@ -223,9 +229,9 @@ class SceneScriptWrapper(nn.Module):
         pc_sparse_tensor = sparse_collate([pc_sparse_tensor])  # batch_size = 1
         pc_sparse_tensor = pc_sparse_tensor.to(self.device)
 
-        return pc_sparse_tensor, pc_min
+        return pc_sparse_tensor, pc_min_torch
 
-    def preprocess_language_grountruth(self, language_sequence, pc_min):
+    def preprocess_language_grountruth(self, language_sequence: LanguageSequence, pc_min: torch.Tensor) -> torch.Tensor:
         """Preprocess the language sequence to be fed into the decoder.
 
         Args:
@@ -234,41 +240,42 @@ class SceneScriptWrapper(nn.Module):
 
         Returns:
             gt_tokens: [max_tokens] torch.LongTensor.
+
         """
         language_sequence.translate(-pc_min)
         language_sequence.normalize_and_discretize(
-            self.cfg.data.num_bins, self.cfg.data.normalization_values
+            self.cfg.data.num_bins, self.cfg.data.normalization_values,
         )
         # TODO: add tokenization
-        gt_tokens = language_sequence.to_seq_value(self.max_num_tokens)
+        return language_sequence.to_seq_value(self.max_num_tokens)
 
-        return gt_tokens
 
-    def postprocess_language(self, seq_value, pc_min):
+    def postprocess_language(self, seq_value: torch.Tensor, pc_min: torch.Tensor) -> LanguageSequence:
         """Postprocess the language sequence back into the original frame of reference.
 
         Args:
             seq_value: [T] torch.LongTensor.
             pc_min: [3] torch.FloatTensor.
+
         """
         language_sequence = LanguageSequence.from_seq_value(seq_value)
         language_sequence.undiscretize_and_unnormalize(
-            self.cfg.data.num_bins, self.cfg.data.normalization_values
+            self.cfg.data.num_bins, self.cfg.data.normalization_values,
         )
         language_sequence.translate(pc_min)
 
         return language_sequence
 
-    def forward(self, *args, **kwargs):
+    def forward(self, *args: Any, **kwargs: Any) -> LanguageSequence:
         return self.run_inference(*args, **kwargs)
 
     @torch.no_grad()
     def run_inference(
         self,
-        raw_point_cloud,
-        nucleus_sampling_thresh=0.05,
-        verbose=False,
-    ):
+        raw_point_cloud: torch.Tensor,
+        nucleus_sampling_thresh: float = 0.05,
+        verbose: bool=False,
+    ) -> LanguageSequence:
         """Run the full inference loop.
 
         Args:
@@ -278,6 +285,7 @@ class SceneScriptWrapper(nn.Module):
 
         Returns:
             a LanguageSequence instance.
+
         """
         start_time = time.time()
 
@@ -298,7 +306,7 @@ class SceneScriptWrapper(nn.Module):
             torch.ones((B, 1), dtype=torch.long, device=device) * HELPER_TOKEN.START
         )
         seq_type = (
-            torch.ones((B, 1), dtype=torch.long, device=device) * self.type_token.START
+            torch.ones((B, 1), dtype=torch.long, device=device) * self.type_token.START  # type: ignore[attr-defined]
         )
 
         for _ in range(seq_value.shape[1], self.max_num_tokens):
@@ -332,17 +340,16 @@ class SceneScriptWrapper(nn.Module):
             )
 
         seq_value = seq_value[0]  # un-batch-ify
-        language_sequence = self.postprocess_language(seq_value, pc_min)
+        return self.postprocess_language(seq_value, pc_min)
 
-        return language_sequence
 
     def run_train_step(
         self,
-        raw_point_cloud,
-        ground_truth_tokens,
-        optimizer,
-        verbose=False,
-    ):
+        raw_point_cloud: torch.Tensor,
+        ground_truth_tokens: torch.Tensor,
+        optimizer: torch.optim.Optimizer,
+        verbose: bool=False,
+    ) -> list[LanguageSequence]:
         """Run the full inference loop.
 
         Args:
@@ -351,7 +358,8 @@ class SceneScriptWrapper(nn.Module):
             verbose: bool.
 
         Returns:
-            a LanguageSequence instance.
+            a list of LanguageSequence instances, length of batch size.
+
         """
         self.train()
         optimizer.zero_grad()  # Clear gradients
@@ -374,10 +382,10 @@ class SceneScriptWrapper(nn.Module):
             torch.ones((B, ground_truth_tokens.size(1)), dtype=torch.long, device=device) * HELPER_TOKEN.START
         )
         seq_type = (
-            torch.ones((B, ground_truth_tokens.size(1)), dtype=torch.long, device=device) * self.type_token.START
+            torch.ones((B, ground_truth_tokens.size(1)), dtype=torch.long, device=device) * self.type_token.START  # type: ignore[attr-defined]
         )
-        loss = 0
-        
+        loss = torch.tensor(0.0, device=device)
+
         logits = self.decoder(
             context=context,
             context_mask=context_mask,

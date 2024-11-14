@@ -4,6 +4,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import Any
+
 import numpy as np
 import torch
 from scipy.spatial.transform import Rotation
@@ -28,7 +30,7 @@ class BboxEntity(BaseEntity):
 
     TOKEN = 4
 
-    def __init__(self, parameters):
+    def __init__(self, parameters: dict[str, Any]) -> None:
         """
         Args:
             parameters: Dict with keys specified in BboxEntity.PARAMS_DEFINITION.
@@ -39,7 +41,7 @@ class BboxEntity(BaseEntity):
                 re_ordered_parameters[param_key] = parameters[param_key]
         self.params = re_ordered_parameters
 
-    def extent(self):
+    def extent(self) -> dict[str, float]:
         """Compute extent of bbox.
 
         Returns:
@@ -101,7 +103,7 @@ class BboxEntity(BaseEntity):
             "size_z": max(max_z - min_z, 0),
         }
 
-    def rotate(self, rotation_angle):
+    def rotate(self, rotation_angle: float) -> None:
         """Rotate bbox entity.
 
         Args:
@@ -139,11 +141,11 @@ class BboxEntity(BaseEntity):
         self.params["position_y"] = new_bbox_center[1]
         self.params["position_z"] = new_bbox_center[2]
 
-    def translate(self, translation):
+    def translate(self, translation: torch.Tensor) -> None:
         """Translate bbox entity.
 
         Args:
-            translation: [3] np.ndarray of XYZ translation.
+            translation: [3] torch.Tensor of XYZ translation.
         """
         bbox_center = torch.as_tensor(
             [
@@ -158,7 +160,7 @@ class BboxEntity(BaseEntity):
         self.params["position_y"] = float(new_bbox_center[1])
         self.params["position_z"] = float(new_bbox_center[2])
 
-    def lex_sort_key(self):
+    def lex_sort_key(self) -> np.ndarray:
         """Compute sorting key for lexicographic sorting.
 
         Returns:
@@ -172,7 +174,7 @@ class BboxEntity(BaseEntity):
         )
         return bbox_center_xy
 
-    def random_sort_key(self):
+    def random_sort_key(self) -> np.ndarray:
         """Compute sorting key for random sorting.
 
         Returns:
@@ -180,7 +182,7 @@ class BboxEntity(BaseEntity):
         """
         return np.random.rand(1)  # [1]
 
-    def to_seq_value(self):
+    def to_seq_value(self) -> list[Any]:
         return [
             self.TOKEN,
             self.params["position_x"],

@@ -7,8 +7,8 @@
 from enum import IntEnum
 
 import torch
-import torch.nn as nn
 from einops import repeat
+from torch import nn
 
 
 class HELPER_TOKEN(IntEnum):
@@ -21,7 +21,7 @@ class HELPER_TOKEN(IntEnum):
     NUM = 6
 
 
-def make_autoregressive_mask(size, device=None):
+def make_autoregressive_mask(size: int, device:str | torch.device=None) -> torch.Tensor:
     # Generates an upper-triangular matrix of -inf, with zeros on diag.
     # Example size=5:
     # [[0., -inf, -inf, -inf, -inf],
@@ -35,23 +35,23 @@ def make_autoregressive_mask(size, device=None):
 class SceneScriptDecoder(nn.Module):
     def __init__(
         self,
-        d_model,
-        num_attn_heads,
-        dim_feedforward,
-        num_bins,
-        max_num_tokens,
-        max_num_type_tokens,
-        num_decoder_layers,
-    ):
-        """
-        Args:
-            d_model: int. Dimension of model.
-            num_attn_heads: int. Number of attention heads.
-            dim_feedforward: int. Dimension of feedforward network.
-            num_bins: int. Number of discretized bins.
-            max_num_tokens: int. Maximum number of tokens.
-            max_num_type_tokens: int. Maximum number of type tokens.
-            num_decoder_layers: int. Number of decoder layers.
+        d_model:int,
+        num_attn_heads:int,
+        dim_feedforward:int,
+        num_bins:int,
+        max_num_tokens:int,
+        max_num_type_tokens:int,
+        num_decoder_layers:int,
+    ) -> None:
+        """Args:
+        d_model: int. Dimension of model.
+        num_attn_heads: int. Number of attention heads.
+        dim_feedforward: int. Dimension of feedforward network.
+        num_bins: int. Number of discretized bins.
+        max_num_tokens: int. Maximum number of tokens.
+        max_num_type_tokens: int. Maximum number of type tokens.
+        num_decoder_layers: int. Number of decoder layers.
+
         """
         super().__init__()
         self.d_model = d_model
@@ -71,7 +71,7 @@ class SceneScriptDecoder(nn.Module):
             norm_first=True,
         )
         self.transformer_decoder = nn.TransformerDecoder(
-            decoder_layer, num_decoder_layers, nn.LayerNorm(d_model)
+            decoder_layer, num_decoder_layers, nn.LayerNorm(d_model),
         )
 
         # Decoding to bins
@@ -85,7 +85,7 @@ class SceneScriptDecoder(nn.Module):
 
         self.register_buffer("causal_mask", make_autoregressive_mask(max_num_tokens))
 
-    def embed_position(self, seq_value):
+    def embed_position(self, seq_value: torch.LongTensor) -> torch.FloatTensor:
         """Apply positional embedding.
 
         Args:
@@ -93,26 +93,31 @@ class SceneScriptDecoder(nn.Module):
 
         Returns:
             pos_emb: [B, T, d_model] torch.FloatTensor.
+
         """
         B, T = seq_value.shape
         device = seq_value.device
 
         # Target embedding
         t = torch.arange(T, device=device)
-        pos_emb = repeat(self.position_embedding(t), "t d -> b t d", b=B)
+        return repeat(self.position_embedding(t), "t d -> b t d", b=B)
 
-        return pos_emb
 
-    def forward(self, context, context_mask, seq_value, seq_type):
-        """
-        Args:
+    def forward(self,
+            context: torch.FloatTensor,
+            context_mask: torch.BoolTensor,
+            seq_value: torch.LongTensor,
+            seq_type: torch.LongTensor,
+        ) -> torch.FloatTensor:
+        """Args:
             context: [B, context_length, d_model] torch.FloatTensor.
             context_mask: [B, context_length] torch.BoolTensor. True means ignore.
             seq_value: [B, T] torch.LongTensor. In range [0, num_bins + HELPER_TOKEN.NUM).
-            seq_type: [B, T] torch.LongTensor. In range [0, max_num_type_tokens)
+            seq_type: [B, T] torch.LongTensor. In range [0, max_num_type_tokens).
 
         Returns:
             [B, T, num_bins + HELPER_TOKEN.NUM] torch.FloatTensor.
+
         """
         B, T = seq_value.shape[:2]
 
@@ -123,7 +128,7 @@ class SceneScriptDecoder(nn.Module):
         )
 
         # Get causal_mask
-        assert T <= self.max_num_tokens
+        assert self.max_num_tokens >= T
         causal_mask = repeat(self.causal_mask[:T, :T], "T Y -> B T Y", B=B)
 
         # transformer
@@ -135,6 +140,5 @@ class SceneScriptDecoder(nn.Module):
             memory_mask=None,
             memory_key_padding_mask=context_mask,
         )  # [B, T, d_model]
-        logits = self.tail(decoder_out)  # [B, T, num_bins + HELPER_TOKEN.NUM]
+        return self.tail(decoder_out)  # [B, T, num_bins + HELPER_TOKEN.NUM]
 
-        return logits

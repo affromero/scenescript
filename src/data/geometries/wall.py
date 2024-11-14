@@ -4,6 +4,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import Any
+
 import numpy as np
 import torch
 from scipy.spatial.transform import Rotation
@@ -29,7 +31,7 @@ class WallEntity(BaseEntity):
 
     TOKEN = 1
 
-    def __init__(self, parameters):
+    def __init__(self, parameters: dict[str, Any]) -> None:
         """
         Args:
             parameters: Dict with keys specified in WallEntity.PARAMS_DEFINITION.
@@ -40,7 +42,7 @@ class WallEntity(BaseEntity):
                 re_ordered_parameters[param_key] = parameters[param_key]
         self.params = re_ordered_parameters
 
-    def extent(self):
+    def extent(self) -> dict[str, float]:
         """Compute extent of wall.
 
         Returns:
@@ -65,7 +67,7 @@ class WallEntity(BaseEntity):
             "size_z": max(max_z - min_z, 0),
         }
 
-    def rotate(self, rotation_angle):
+    def rotate(self, rotation_angle: float) -> None:
         """Rotate wall entity.
 
         Args:
@@ -91,11 +93,11 @@ class WallEntity(BaseEntity):
         self.params["b_y"] = round(new_wall_end[1].item(), 3)
         self.params["b_z"] = round(new_wall_end[2].item(), 3)
 
-    def translate(self, translation):
+    def translate(self, translation: torch.Tensor) -> None:
         """Translate wall entity.
 
         Args:
-            translation: [3] np.ndarray of XYZ translation.
+            translation: [3] torch.Tensor of XYZ translation.
         """
         wall_start = torch.as_tensor(
             [self.params["a_x"], self.params["a_y"], self.params["a_z"]],
@@ -114,7 +116,7 @@ class WallEntity(BaseEntity):
         self.params["b_y"] = round(new_wall_end[1].item(), 3)
         self.params["b_z"] = round(new_wall_end[2].item(), 3)
 
-    def lex_sort_key(self):
+    def lex_sort_key(self) -> np.ndarray:
         """Compute sorting key for lexicographic sorting.
 
         Note: self.params will be edited with corner lex-sorting as well.
@@ -141,7 +143,7 @@ class WallEntity(BaseEntity):
 
         return np.concatenate([corner_2_ordered, corner_1_ordered])
 
-    def to_seq_value(self):
+    def to_seq_value(self) -> list[Any]:
         """Convert wall entity to sequence value.
 
         Returns:
