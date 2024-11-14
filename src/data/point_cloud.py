@@ -114,7 +114,7 @@ class PointCloud:
         """
         points_xyz = self.points[:, :3]
         points_rest = self.points[:, 3:]
-        translated_points = points_xyz + translation_vector
+        translated_points = points_xyz + translation_vector.to(points_xyz.device)
         self.points = torch.cat([translated_points, points_rest], dim=1)
 
     def normalize_and_discretize(self, num_bins, normalization_values):
@@ -153,11 +153,11 @@ class PointCloud:
 
         # Get unique voxel coordinates
         unique_voxel_coords, inverse, unique_voxel_counts = np.unique(
-            voxel_coords.numpy(), axis=0, return_inverse=True, return_counts=True
+            voxel_coords.cpu().numpy(), axis=0, return_inverse=True, return_counts=True
         )
         unique_voxel_coords = torch.as_tensor(unique_voxel_coords)
-        inverse = torch.as_tensor(inverse)
-        unique_voxel_counts = torch.as_tensor(unique_voxel_counts)
+        inverse = torch.as_tensor(inverse).to(self.points.device)
+        unique_voxel_counts = torch.as_tensor(unique_voxel_counts).to(self.points.device)
 
         # Average of points falling in the same bin
         discretised_original_points = torch.stack(

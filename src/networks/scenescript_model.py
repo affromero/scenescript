@@ -36,8 +36,9 @@ def list_rindex(list, value):
     return len(list) - i - 1
 
 
-class SceneScriptWrapper(object):
+class SceneScriptWrapper(nn.Module):
     def __init__(self, cfg):
+        super().__init__()
         self.cfg = cfg
         self.max_num_tokens = cfg.model.decoder.max_num_tokens
         self.type_token = create_TYPE_TOKEN()
@@ -59,25 +60,49 @@ class SceneScriptWrapper(object):
             num_decoder_layers=cfg.model.decoder.num_decoder_layers,
         )
 
-        self.model = nn.ModuleDict({"encoder": self.encoder, "decoder": self.decoder})
-
     @staticmethod
-    def load_from_checkpoint(ckpt_path):
+    def load_from_checkpoint(ckpt_path, is_train=False):
         ckpt_dict = torch.load(ckpt_path)
         cfg = OmegaConf.create(ckpt_dict["cfg"])
 
         model_wrapper = SceneScriptWrapper(cfg)
-        model_wrapper.model.load_state_dict(ckpt_dict["model_state_dict"])
-        model_wrapper.model = model_wrapper.model.eval()
+        weights = ckpt_dict["model_state_dict"]
+        encoder_weights = {k.replace("encoder.","",1): v for k, v in weights.items() if k.startswith("encoder.")}
+        decoder_weights = {k.replace("decoder.","",1): v for k, v in weights.items() if k.startswith("decoder.")}
+        model_wrapper.encoder.load_state_dict(encoder_weights)
+        model_wrapper.decoder.load_state_dict(decoder_weights)
+        if not is_train:
+            model_wrapper.eval()
 
         return model_wrapper
 
     @property
     def device(self):
-        return list(self.model.parameters())[0].device
+        return list(self.encoder.parameters())[0].device
+
+    def cpu(self):
+        self.encoder.cpu()
+        self.decoder.cpu()
+        return self
+
+    def to(self, device):
+        self.encoder.to(device)
+        self.decoder.to(device)
+        return self
+    
+    def train(self):
+        self.encoder.train()
+        self.decoder.train()
+        return self
+    
+    def eval(self):
+        self.encoder.eval()
+        self.decoder.eval()
+        return self
 
     def cuda(self):
-        self.model = self.model.cuda()
+        self.encoder.cuda()
+        self.decoder.cuda()
         return self
 
     def top_p(self, logits, thres):
@@ -234,6 +259,9 @@ class SceneScriptWrapper(object):
 
         return language_sequence
 
+    def forward(self, *args, **kwargs):
+        return self.run_inference(*args, **kwargs)
+
     @torch.no_grad()
     def run_inference(
         self,
@@ -255,7 +283,7 @@ class SceneScriptWrapper(object):
 
         # Encode the visual inputs
         pc_sparse_tensor, pc_min = self.preprocess_point_cloud(raw_point_cloud)
-        encoded_visual_input = self.model["encoder"](pc_sparse_tensor)
+        encoded_visual_input = self.encoder(pc_sparse_tensor)
         context = encoded_visual_input["context"]
         context_mask = encoded_visual_input["context_mask"]
 
@@ -275,7 +303,7 @@ class SceneScriptWrapper(object):
 
         for _ in range(seq_value.shape[1], self.max_num_tokens):
             # Run decoder to get logits
-            logits = self.model["decoder"](
+            logits = self.decoder(
                 context=context,
                 context_mask=context_mask,
                 seq_value=seq_value,
@@ -325,13 +353,13 @@ class SceneScriptWrapper(object):
         Returns:
             a LanguageSequence instance.
         """
-        self.model.train()
+        self.train()
         optimizer.zero_grad()  # Clear gradients
         start_time = time.time()
 
         # Encode the visual inputs
         pc_sparse_tensor, pc_min = self.preprocess_point_cloud(raw_point_cloud)
-        encoded_visual_input = self.model["encoder"](pc_sparse_tensor)
+        encoded_visual_input = self.encoder(pc_sparse_tensor)
         context = encoded_visual_input["context"]
         context_mask = encoded_visual_input["context_mask"]
 
@@ -350,7 +378,7 @@ class SceneScriptWrapper(object):
         )
         loss = 0
         
-        logits = self.model["decoder"](
+        logits = self.decoder(
             context=context,
             context_mask=context_mask,
             seq_value=seq_value,
