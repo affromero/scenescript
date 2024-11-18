@@ -322,7 +322,7 @@ class LanguageSequence:
         return "\n".join(all_lines)
 
     @staticmethod
-    def from_seq_value(seq_value: torch.LongTensor) -> "LanguageSequence":
+    def from_seq_value(seq_value: torch.LongTensor, ids_dict: dict[str, int] | None = None) -> "LanguageSequence":
         """Convert a sequence value to a language sequence.
 
         Args:
@@ -344,12 +344,13 @@ class LanguageSequence:
         part_idxs = torch.cat([part_idxs, torch.as_tensor([stop_idx])])
 
         # Initialise IDs for each command
-        ids_dict = {
-            "make_wall": 0,
-            "make_door": 1000,
-            "make_window": 2000,
-            "make_bbox": 3000,
-        }
+        if ids_dict is None:
+            ids_dict = {
+                "make_wall": 0,
+                "make_door": 1000,
+                "make_window": 2000,
+                "make_bbox": 3000,
+            }
 
         entities = []
         for part_idx in range(part_idxs.shape[0] - 1):

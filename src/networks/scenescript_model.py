@@ -250,7 +250,7 @@ class SceneScriptWrapper(nn.Module):
         return language_sequence.to_seq_value(self.max_num_tokens)
 
 
-    def postprocess_language(self, seq_value: torch.Tensor, pc_min: torch.Tensor) -> LanguageSequence:
+    def postprocess_language(self, seq_value: torch.Tensor, pc_min: torch.Tensor, ids_dict: dict[str, int] | None = None) -> LanguageSequence:
         """Postprocess the language sequence back into the original frame of reference.
 
         Args:
@@ -258,7 +258,7 @@ class SceneScriptWrapper(nn.Module):
             pc_min: [3] torch.FloatTensor.
 
         """
-        language_sequence = LanguageSequence.from_seq_value(seq_value)
+        language_sequence = LanguageSequence.from_seq_value(seq_value, ids_dict=ids_dict)
         language_sequence.undiscretize_and_unnormalize(
             self.cfg.data.num_bins, self.cfg.data.normalization_values,
         )
@@ -275,6 +275,7 @@ class SceneScriptWrapper(nn.Module):
         raw_point_cloud: torch.Tensor,
         nucleus_sampling_thresh: float = 0.05,
         verbose: bool=False,
+        ids_dict: dict[str, int] | None = None,
     ) -> LanguageSequence:
         """Run the full inference loop.
 
@@ -340,7 +341,7 @@ class SceneScriptWrapper(nn.Module):
             )
 
         seq_value = seq_value[0]  # un-batch-ify
-        return self.postprocess_language(seq_value, pc_min)
+        return self.postprocess_language(seq_value, pc_min, ids_dict=ids_dict)
 
 
     def run_train_step(
