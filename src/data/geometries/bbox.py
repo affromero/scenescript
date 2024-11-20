@@ -7,6 +7,7 @@
 from typing import Any
 
 import numpy as np
+import open3d
 import torch
 from scipy.spatial.transform import Rotation
 
@@ -193,3 +194,35 @@ class BboxEntity(BaseEntity):
             self.params["scale_y"],
             self.params["scale_z"],
         ]
+
+    @staticmethod
+    def from_open3d(_id: int, _class: str, /, bbox: open3d.geometry.OrientedBoundingBox) -> "BboxEntity":
+        """Create BboxEntity from open3d OrientedBoundingBox.
+
+        Args:
+            _id: int. Id of the bbox.
+            _class: str. Class of the bbox.
+            bbox: open3d.geometry.OrientedBoundingBox.
+
+        Returns:
+            BboxEntity.
+        """
+        bbox_center = np.asarray(bbox.get_axis_aligned_bounding_box().get_center())
+        bbox_extent = np.asarray(bbox.get_axis_aligned_bounding_box().get_extent())
+        bbox_rot_mat = np.asarray(bbox.R)
+        bbox_rot_euler = Rotation.from_matrix(torch.from_numpy(bbox_rot_mat)).as_euler("ZYX")
+        bbox_rot_angle = bbox_rot_euler[0]
+
+        return BboxEntity(
+            {
+                "id": _id,
+                "class": _class,
+                "position_x": bbox_center[0],
+                "position_y": bbox_center[1],
+                "position_z": bbox_center[2],
+                "angle_z": bbox_rot_angle,
+                "scale_x": bbox_extent[0],
+                "scale_y": bbox_extent[1],
+                "scale_z": bbox_extent[2],
+            }
+        )
